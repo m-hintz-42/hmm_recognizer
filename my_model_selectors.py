@@ -76,8 +76,36 @@ class SelectorBIC(ModelSelector):
         """
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-        # TODO implement model selection based on BIC scores
-        raise NotImplementedError
+        min_model = None
+        min_bic = float("inf")
+
+        for state in range(self.min_n_components, self.max_n_components + 1):
+            try:
+                score, model = self.score_bic(state)
+                if score < min_bic:
+                    min_bic = score
+                    min_model = model
+
+            except Exception as e:
+                pass
+
+        if min_model:
+            return min_model
+        else:
+            return self.base_model(self.n_constant)
+
+    def score_bic(self, state):
+        model = self.base_model(state)
+
+        # Number of free parameters
+        params = (state ** 2) + (2 * model.n_features * state) - 1
+
+        logL = model.score(self.X, self.lengths)
+        logN = np.log(len(self.X))
+
+        BIC = -2 * logL + params * logN
+
+        return BIC, model
 
 
 class SelectorDIC(ModelSelector):
@@ -87,13 +115,41 @@ class SelectorDIC(ModelSelector):
     Document Analysis and Recognition, 2003. Proceedings. Seventh International Conference on. IEEE, 2003.
     http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.58.6208&rep=rep1&type=pdf
     DIC = log(P(X(i)) - 1/(M-1)SUM(log(P(X(all but i))
+
+    DIC = log(P(X(i)) - 1/(M - 1) * sum(log(P(X(all but i))
     '''
 
     def select(self):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-        # TODO implement model selection based on DIC scores
-        raise NotImplementedError
+        max_model = None
+        max_dic = float("-inf")
+
+        for state in range(self.min_n_components, self.max_n_components + 1):
+            try:
+                score, model = self.score_dic(state)
+                if score > max_dic:
+                    max_dic = score
+                    max_model = model
+
+            except Exception as e:
+                pass
+
+        if max_model:
+            return max_model
+        else:
+            return self.base_model(self.n_constant)
+
+    def score_dic(self, state):
+        log_liklihoods =[]
+        model = self.base_model(state)
+        for word, (X, lengths) in  self.hwords.items():
+            if word != self.this_word:
+                log_word = model.score(X, lengths)
+                log_liklihoods.append(log_word)
+
+        DIC = model.score(self.X, self.lengths) - np.mean(log_liklihoods)
+        return DIC, model
 
 
 class SelectorCV(ModelSelector):
@@ -103,6 +159,34 @@ class SelectorCV(ModelSelector):
 
     def select(self):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
+        max_model = None
+        max_cv = float("-inf")
 
-        # TODO implement model selection using CV
-        raise NotImplementedError
+        for state in range(self.min_n_components, self.max_n_components + 1):
+            try:
+                if len(self.sequences) > 2:
+                        score, model = self.score_cv(state)
+                        if score > max_cv:
+                            max_cv = score
+                            max_model = model
+
+            except Exception as e:
+                pass
+
+        if max_model:
+            return max_model
+        else:
+            return self.base_model(self.n_constant)
+
+    def score_cv(self, state):
+        warnings.filterwarnings("ignore", category=DeprecationWarning)
+        log_likelihood = []
+
+        for train, test in KFold(n_splits=2).split(self.sequences):
+            self.X, self.lengths = combine_sequences(train, self.sequences)
+            test_x, test_lengths = combine_sequences(test, self.sequences)
+
+            model = self.base_model(state)
+            log_likelihood.append(model.score(test_x, test_lengths))
+
+        return np.mean(log_likelihood), model
